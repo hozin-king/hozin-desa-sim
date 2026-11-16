@@ -196,6 +196,12 @@ public class Village {
         }
         happiness = Math.max(0, Math.min(100, happiness));
 
+        // Kapasitas simpan (lumbung): stok berlebih terbuang — skor tidak bisa
+        // dimenangkan cuma dengan menimbun.
+        makanan = Math.min(makanan, 2000);
+        air = Math.min(air, 2000);
+        kayu = Math.min(kayu, 5000);
+
         // Kebutuhan tiap penduduk ikut kondisi desa (untuk panel info).
         for (Villager v : villagers) {
             v.lapar = clamp(v.lapar + (makanKurang > 0 ? 12 : -8), 0, 100);
@@ -232,9 +238,15 @@ public class Village {
             emas -= 10;
             makanan += 12;
         }
-        // Bangun otomatis bila kaya: utamakan tambang, lalu rumah/ladang acak.
+        // Bangun otomatis bila kaya, sesuai kebutuhan — JANGAN ladang terus tanpa air.
+        int airCapacity = countBuilding(BuildingType.SUMUR) * 5 * 8;
+        int airNeed = population() + countBuilding(BuildingType.LADANG) * 2;
         if (kayu >= 25 && emas >= 10 && countBuilding(BuildingType.TAMBANG) == 0) {
             autoPlace(BuildingType.TAMBANG);
+        } else if (kayu >= 6 && airCapacity < airNeed + 20) {
+            autoPlace(BuildingType.SUMUR);
+        } else if (kayu >= 10 && housingCapacity() < population() + 25) {
+            autoPlace(BuildingType.RUMAH);
         } else if (kayu >= 25 && rng.nextFloat() < 0.3f) {
             autoPlace(rng.nextFloat() < 0.5f ? BuildingType.RUMAH : BuildingType.LADANG);
         }
