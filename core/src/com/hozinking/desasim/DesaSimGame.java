@@ -13,6 +13,7 @@ import com.badlogic.gdx.graphics.g2d.SpriteBatch;
 import com.badlogic.gdx.graphics.glutils.ShapeRenderer;
 import com.badlogic.gdx.input.GestureDetector;
 import com.badlogic.gdx.math.MathUtils;
+import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.utils.Array;
@@ -31,6 +32,8 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
     private static final String SAVE_KEY = "save";
 
     private OrthographicCamera cam;
+    private Matrix4 hudMatrix = new Matrix4(); // proyeksi layar (piksel) untuk HUD
+    private float zoomFit = 1f; // zoom yang membuat seluruh peta muat dalam satu layar
     private ShapeRenderer shapes;
     private SpriteBatch batch;
     private BitmapFont fontHud;
@@ -121,13 +124,34 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
         showToast("Selamat datang di Karangsepi! Bangun ladang + sumur, atur pekerjaan, kalahkan Limpahraya.");
     }
 
+    /** Zoom yang membuat seluruh dunia (2200x1200) muat dalam viewport. */
+    static float fitZoom(float viewportW, float viewportH) {
+        return Math.max(WORLD_W / viewportW, WORLD_H / viewportH);
+    }
+
+    /**
+     * Jepit posisi kamera pada satu sumbu. Bila separuh area terlihat >= separuh
+     * dunia (zoom-out melewati batas), kembalikan tengah dunia — JANGAN jepit
+     * ke tepi (bug v1.0: min > max pada clamp membuat kamera melompat ke pojok
+     * dan peta berkedip tiap frame saat zoom berubah).
+     */
+    static float clampAxis(float pos, float halfVisible, float worldSize) {
+        if (halfVisible >= worldSize / 2f) return worldSize / 2f;
+        return MathUtils.clamp(pos, halfVisible, worldSize - halfVisible);
+    }
+
     @Override
     public void resize(int width, int height) {
         float aspect = (float) height / width;
         cam.viewportWidth = WORLD_W;
         cam.viewportHeight = WORLD_W * aspect;
+        // Default: seluruh peta muat dalam satu layar (fit-all).
+        zoomFit = fitZoom(cam.viewportWidth, cam.viewportHeight);
+        cam.zoom = zoomFit;
         cam.position.set(WORLD_W / 2f, WORLD_H / 2f, 0);
+        clampCamera();
         cam.update();
+        hudMatrix.setToOrtho2D(0, 0, width, height);
         layoutButtons(width, height);
     }
 
@@ -142,8 +166,8 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
         buttons.add(new Btn(x - bw, 8, bw, bh, "5x", A_SPEED5)); x -= bw + gap;
         buttons.add(new Btn(x - bw, 8, bw, bh, "1x", A_SPEED1)); x -= bw + gap;
         buttons.add(new Btn(x - bw, 8, bw, bh, "II", A_PAUSE));
-        // Bawah: 6 tombol bangun.
-        float buildW = 118, buildH = 62, buildGap = 8, bx = 8, by = h - buildH - 8;
+        // Bawah: 6 tombol bangun (lebar 150 supaya label harga tidak meluber).
+        float buildW = 150, buildH = 62, buildGap = 8, bx = 8, by = h - buildH - 8;
         buttons.add(new Btn(bx, by, buildW, buildH, "Rumah\n10 kayu", A_BUILD_RUMAH)); bx += buildW + buildGap;
         buttons.add(new Btn(bx, by, buildW, buildH, "Ladang\n8 kayu", A_BUILD_LADANG)); bx += buildW + buildGap;
         buttons.add(new Btn(bx, by, buildW, buildH, "Sumur\n6 kayu", A_BUILD_SUMUR)); bx += buildW + buildGap;
@@ -160,11 +184,12 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
         buttons.add(new Btn(jx + jobW - 34, jy - jobH, 34, jobH, "+", A_JOB_KAYU_PLUS)); jy -= jobH + 4;
         buttons.add(new Btn(jx, jy - jobH, 34, jobH, "-", A_JOB_TAMBANG_MINUS));
         buttons.add(new Btn(jx + jobW - 34, jy - jobH, 34, jobH, "+", A_JOB_TAMBANG_PLUS));
-        // Jual-beli (butuh pasar): 3 tombol kecil di kiri panel pekerjaan.
-        float tw = 150, th = 40, tx = w - 258 - 16 - 3 * tw - 2 * 8, ty = h - th - 8;
-        buttons.add(new Btn(tx, ty, tw, th, "Jual 10 Makan=3 Emas", A_SELL_FOOD)); tx += tw + 8;
-        buttons.add(new Btn(tx, ty, tw, th, "Jual 10 Kayu=2 Emas", A_SELL_WOOD)); tx += tw + 8;
-        buttons.add(new Btn(tx, ty, tw, th, "Beli 10 Makan=5 Emas", A_BUY_FOOD));
+        // Jual-beli (butuh pasar): 3 tombol di kiri panel pekerjaan.
+        // Label dua baris supaya tidak meluber keluar tombol.
+        float tw = 170, th = 48, tx = w - 258 - 16 - 3 * tw - 2 * 8, ty = h - th - 8;
+        buttons.add(new Btn(tx, ty, tw, th, "Jual 10 Makan\n3 Emas", A_SELL_FOOD)); tx += tw + 8;
+        buttons.add(new Btn(tx, ty, tw, th, "Jual 10 Kayu\n2 Emas", A_SELL_WOOD)); tx += tw + 8;
+        buttons.add(new Btn(tx, ty, tw, th, "Beli 10 Makan\n5 Emas", A_BUY_FOOD));
         // Dialog akhir lomba.
         if (sim.raceOver) {
             float dw = 300, dh = 54, dx = w / 2f - dw / 2f, dy = h / 2f - 40;
@@ -231,9 +256,9 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
 
     private float nightDarkness(float t) {
         if (t >= 0.25f && t < 0.75f) return 0f;
-        if (t >= 0.85f || t < 0.15f) return 0.38f;
-        if (t < 0.25f) return 0.38f * (0.25f - t) / 0.10f;
-        return 0.38f * (t - 0.75f) / 0.10f;
+        if (t >= 0.85f || t < 0.15f) return 0.22f;
+        if (t < 0.25f) return 0.22f * (0.25f - t) / 0.10f;
+        return 0.22f * (t - 0.75f) / 0.10f;
     }
 
     private void drawVillage(Village v) {
@@ -371,6 +396,11 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
     private void drawHud() {
         int w = Gdx.graphics.getWidth();
         int h = Gdx.graphics.getHeight();
+        // HUD digambar dalam koordinat layar (piksel), BUKAN koordinat dunia —
+        // v1.0 memakai matriks kamera di sini sehingga semua panel pindah
+        // tempat begitu kamera di-zoom/di-pan.
+        shapes.setProjectionMatrix(hudMatrix);
+        batch.setProjectionMatrix(hudMatrix);
         shapes.begin(ShapeRenderer.ShapeType.Filled);
         // Bar atas.
         shapes.setColor(0f, 0f, 0f, 0.55f);
@@ -417,14 +447,17 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
             fontSmall.setColor(Color.WHITE);
             drawMultilineCentered(b.label, b.x + b.w / 2f, h - b.top - b.h / 2f + 8);
         }
-        // Panel pekerjaan (teks, bukan tombol).
-        float jx = w - 258, jy = h - 24;
+        // Panel pekerjaan: teks sejajar baris tombol -/+ di kanan bawah
+        // (y dari bawah; v1.0 menggambarnya di dekat ATAS sehingga menimpa
+        // tombol kecepatan 1x/5x/10x dan panel grafik).
+        // Baris tombol: y 8..38, 42..72, 76..106, 110..140 dari bawah.
+        float jx = w - 258;
         fontSmall.setColor(Color.WHITE);
-        fontSmall.draw(batch, "Petani " + p.jobCounts[Villager.Job.PETANI.ordinal()], jx + 44, jy);
-        fontSmall.draw(batch, "Air " + p.jobCounts[Villager.Job.PENCARI_AIR.ordinal()], jx + 44, jy - 34);
-        fontSmall.draw(batch, "Kayu " + p.jobCounts[Villager.Job.PENEBANG.ordinal()], jx + 44, jy - 68);
-        fontSmall.draw(batch, "Tambang " + p.jobCounts[Villager.Job.PENAMBANG.ordinal()], jx + 44, jy - 102);
-        fontSmall.draw(batch, "Menganggur " + p.idleCount(), jx + 44, jy + 4);
+        fontSmall.draw(batch, "Petani " + p.jobCounts[Villager.Job.PETANI.ordinal()], jx + 44, 29);
+        fontSmall.draw(batch, "Air " + p.jobCounts[Villager.Job.PENCARI_AIR.ordinal()], jx + 44, 63);
+        fontSmall.draw(batch, "Kayu " + p.jobCounts[Villager.Job.PENEBANG.ordinal()], jx + 44, 97);
+        fontSmall.draw(batch, "Tambang " + p.jobCounts[Villager.Job.PENAMBANG.ordinal()], jx + 44, 131);
+        fontSmall.draw(batch, "Menganggur " + p.idleCount(), jx + 44, 165);
         // Info pilihan / toast.
         if (selectedVillager != null) {
             Villager v = selectedVillager;
@@ -594,7 +627,8 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
     @Override
     public boolean zoom(float initialDistance, float distance) {
         float ratio = initialDistance / distance;
-        cam.zoom = MathUtils.clamp(cam.zoom * ratio, 0.35f, 1.8f);
+        // Zoom-out maksimal = fit-all (seluruh peta muat); zoom-in minimal 0.35.
+        cam.zoom = MathUtils.clamp(cam.zoom * ratio, 0.35f, zoomFit);
         clampCamera();
         cam.update();
         return true;
@@ -603,8 +637,8 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
     private void clampCamera() {
         float vw = cam.viewportWidth * cam.zoom / 2f;
         float vh = cam.viewportHeight * cam.zoom / 2f;
-        cam.position.x = MathUtils.clamp(cam.position.x, vw, WORLD_W - vw);
-        cam.position.y = MathUtils.clamp(cam.position.y, vh, WORLD_H - vh);
+        cam.position.x = clampAxis(cam.position.x, vw, WORLD_W);
+        cam.position.y = clampAxis(cam.position.y, vh, WORLD_H);
     }
 
     private void handleButton(int action) {
