@@ -244,21 +244,10 @@ public class DesaSimGame extends ApplicationAdapter implements GestureDetector.G
         }
         drawVillage(sim.player);
         drawVillage(sim.rival);
-        // Gelap malam.
-        float dark = nightDarkness(sim.timeOfDay());
-        if (dark > 0.01f) {
-            shapes.setColor(0.05f, 0.08f, 0.25f, dark);
-            shapes.rect(cam.position.x - cam.viewportWidth * cam.zoom / 2f,
-                    cam.position.y - cam.viewportHeight * cam.zoom / 2f,
-                    cam.viewportWidth * cam.zoom, cam.viewportHeight * cam.zoom);
-        }
-    }
-
-    private float nightDarkness(float t) {
-        if (t >= 0.25f && t < 0.75f) return 0f;
-        if (t >= 0.85f || t < 0.15f) return 0.22f;
-        if (t < 0.25f) return 0.22f * (0.25f - t) / 0.10f;
-        return 0.22f * (t - 0.75f) / 0.10f;
+        // Malam TANPA visual (keputusan user 16 Nov 2026): hanya teks
+        // "Siang"/"Malam" di HUD. Overlay malam dihapus total — v1.1
+        // membuktikan alpha-nya diabaikan (ShapeRenderer tanpa blending)
+        // sehingga rect itu opaque biru gelap dan menutupi seluruh peta.
     }
 
     private void drawVillage(Village v) {

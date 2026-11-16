@@ -134,6 +134,29 @@ public class SimTest {
     }
 
     @Test
+    public void siklusSiangMalamTetapJalanTanpaVisualMalam() {
+        // Regresi v1.1.1: malam TIDAK divisualisasikan (keputusan user
+        // 16 Nov 2026) — hanya teks "Siang"/"Malam" di HUD. Siklusnya
+        // sendiri harus tetap jalan: logika + teks tidak boleh ikut mati
+        // saat overlay dihapus.
+        Sim sim = Sim.newGame();
+        sim.dayFrac = 0.5f;
+        assertTrue(sim.isDaytime());
+        assertEquals(0.5f, sim.timeOfDay(), 0.001f);
+        sim.dayFrac = 0.9f;
+        assertFalse(sim.isDaytime());
+        sim.dayFrac = 0.0f;
+        assertFalse(sim.isDaytime());
+        // Siklus maju: dari malam (0.9) ke siang hari berikutnya.
+        sim.dayFrac = 0.9f;
+        sim.speed = 1;
+        sim.update(0.4f); // +0.2 hari -> 0.1 hari berikutnya (malam)
+        assertFalse(sim.isDaytime());
+        sim.update(1.2f); // +0.6 hari -> 0.7 (siang)
+        assertTrue(sim.isDaytime());
+    }
+
+    @Test
     public void kincirMenaikkanHasilLadang() {
         Village a = village(true);
         Village b = village(true);
