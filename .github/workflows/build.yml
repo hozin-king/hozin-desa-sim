@@ -1,0 +1,64 @@
+name: Android CI — auto build + release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Restore persistent debug keystore
+        env:
+          DEBUG_KEYSTORE_BASE64: ${{ secrets.DEBUG_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$DEBUG_KEYSTORE_BASE64" ]; then
+            echo "$DEBUG_KEYSTORE_BASE64" | base64 -d > debug.keystore
+            echo "debug.keystore dipulihkan dari secret — build memakai tanda tangan persisten"
+          else
+            echo "DEBUG_KEYSTORE_BASE64 tidak ada — AGP memakai debug keystore ephemeral (tanda tangan berubah tiap run)"
+          fi
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install Android platform + build-tools
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
+            "platforms;android-34" "build-tools;34.0.0"
+
+      - name: Run unit tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :core:test --stacktrace
+
+      - name: Build debug APK
+        run: |
+          chmod +x gradlew
+          ./gradlew :android:assembleDebug --stacktrace
+
+      - name: Create or update GitHub Release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION=$(grep -oP 'versionName\s*"\K[^"]+' android/build.gradle || true)
+          if [ -z "$VERSION" ]; then echo "versionName tidak ditemukan di android/build.gradle"; exit 1; fi
+          TAG="v$VERSION"
+          APK=$(ls android/build/outputs/apk/debug/*.apk | head -n 1)
+          cp "$APK" "HozinDesaSim-$VERSION.apk"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "HozinDesaSim-$VERSION.apk" --clobber
+          else
+            gh release create "$TAG" "HozinDesaSim-$VERSION.apk" --title "Hozin Desa Sim $VERSION" --notes "Simulasi desa 2D top-down (libGDX, native, full offline, grafik flat modern bukan pixel art). Atur desa Karangsepi lawan desa Limpahraya (AI boros) dalam lomba kemakmuran 20 tahun: bangun rumah/ladang/sumur/kincir/tambang/pasar, atur pekerjaan penduduk, jual-beli di pasar, kecepatan 1x/5x/10x, save/load lokal."
+          fi
